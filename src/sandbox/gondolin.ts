@@ -31,6 +31,8 @@ import {
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 import { RealFSProvider, VM } from "@earendil-works/gondolin";
 
+import type { ImageDescriptor } from "./index.js";
+
 const GUEST_WORKSPACE = "/workspace";
 
 function shQuote(value: string): string {
@@ -167,6 +169,16 @@ export interface GondolinSandboxOptions {
    * credentials, which is what this option exists for.
    */
   env?: Record<string, string>;
+  /**
+   * Absolute path to a gondolin build output directory. When set, the VM
+   * boots from these assets instead of gondolin's built-in
+   * `alpine-base:latest`. The caller (typically `runner.ts`) is
+   * responsible for resolving the user-facing `--sandbox-image` value
+   * (default / gondolin-builtin / path) to this absolute path.
+   */
+  imagePath?: string;
+  /** Descriptor surfaced verbatim in `status.image`. */
+  image?: ImageDescriptor;
 }
 
 export interface GondolinSandbox {
@@ -183,6 +195,8 @@ export interface GondolinSandbox {
     createMs: number;
     /** Sorted list of env var KEY names injected (values omitted for safety). */
     envKeys: string[];
+    /** Image descriptor (omitted when caller didn't supply one). */
+    image?: ImageDescriptor;
   };
 }
 
@@ -198,6 +212,7 @@ export async function buildGondolinSandbox(
   options: GondolinSandboxOptions = {},
 ): Promise<GondolinSandbox> {
   const env = options.env;
+  const imagePath = options.imagePath;
   const t0 = Date.now();
   const vm = await VM.create({
     vfs: {
@@ -205,6 +220,7 @@ export async function buildGondolinSandbox(
         [GUEST_WORKSPACE]: new RealFSProvider(cwd),
       },
     },
+    ...(imagePath ? { sandbox: { imagePath } } : {}),
     ...(env && Object.keys(env).length > 0 ? { env } : {}),
   });
   const createMs = Date.now() - t0;
@@ -252,6 +268,7 @@ export async function buildGondolinSandbox(
       guestPath: GUEST_WORKSPACE,
       createMs,
       envKeys: env ? Object.keys(env).sort() : [],
+      ...(options.image ? { image: options.image } : {}),
     },
     close: async () => {
       if (closed) return;

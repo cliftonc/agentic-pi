@@ -43,6 +43,15 @@ export interface RunOptions {
   profile?: string;
   /** Sandbox backend. Default: "none". */
   sandbox?: "none" | "gondolin";
+  /**
+   * Image to boot when `sandbox: "gondolin"`. Values:
+   *   - `"default"` (recommended) — bundled `agentic-pi-dev` image
+   *     (auto-downloaded into `~/.cache/agentic-pi/images/`).
+   *   - `"gondolin-builtin"` — stock `alpine-base:latest`, no toolchain.
+   *   - absolute path — local `gondolin build` output directory.
+   * Default: `"default"`.
+   */
+  sandboxImage?: string;
   /** Working directory. Default: process.cwd(). */
   cwd?: string;
   /** Skip session persistence. Default: false. */
@@ -167,6 +176,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     dangerouslySkipPermissions: false,
     sandbox: options.sandbox ?? "none",
     sandboxEnv: options.sandboxEnv,
+    sandboxImage: options.sandboxImage,
   };
 
   const collector = new CollectorSink(options.onEvent);

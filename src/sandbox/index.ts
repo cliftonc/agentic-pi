@@ -34,6 +34,27 @@ export interface BuildSandboxOptions {
   cwd: string;
   /** Env vars to inject into the sandbox (ignored when backend === "none"). */
   env?: Record<string, string>;
+  /**
+   * Absolute path to a gondolin build output directory to mount as the
+   * guest. When `undefined`, gondolin uses its built-in `alpine-base`.
+   * Ignored when `backend === "none"`. The runner is responsible for
+   * resolving `--sandbox-image` (default / gondolin-builtin / path) to
+   * this path before calling buildSandbox.
+   */
+  imagePath?: string;
+  /**
+   * Optional descriptor of which image is being used, surfaced verbatim
+   * in `sandbox_status.image`. The sandbox layer does not interpret it —
+   * the runner builds it from the loader result.
+   */
+  image?: ImageDescriptor;
+}
+
+export interface ImageDescriptor {
+  name: string;
+  version?: string;
+  source: "builtin" | "local-path" | "cached" | "downloaded";
+  downloadMs?: number;
 }
 
 export type BuildSandboxOutcome =
@@ -71,7 +92,11 @@ export async function buildSandbox(opts: BuildSandboxOptions): Promise<BuildSand
   }
 
   try {
-    const sandbox = await buildGondolinSandbox(opts.cwd, { env: opts.env });
+    const sandbox = await buildGondolinSandbox(opts.cwd, {
+      env: opts.env,
+      imagePath: opts.imagePath,
+      image: opts.image,
+    });
     return {
       ok: true,
       sandbox: {

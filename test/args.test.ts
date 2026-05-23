@@ -138,6 +138,29 @@ describe("parseArgs", () => {
     assert.deepEqual(cfg.sandboxEnv, { X: "second" });
   });
 
+  test("--sandbox-image captures a path", () => {
+    const cfg = parseArgs([
+      "--model", "openai/gpt-4",
+      "--sandbox-image", "/abs/path/to/image",
+    ]);
+    assert.equal(cfg.sandboxImage, "/abs/path/to/image");
+  });
+
+  test("--sandbox-image accepts named selectors (resolution deferred)", () => {
+    const cfg = parseArgs([
+      "--model", "openai/gpt-4",
+      "--sandbox-image", "default",
+    ]);
+    assert.equal(cfg.sandboxImage, "default");
+  });
+
+  test("--sandbox-image rejects empty value", () => {
+    assert.throws(
+      () => parseArgs(["--model", "openai/gpt-4", "--sandbox-image", ""]),
+      /requires a non-empty value/,
+    );
+  });
+
   test("unknown flag throws", () => {
     assert.throws(
       () => parseArgs(["--model", "openai/gpt-4", "--bogus"]),

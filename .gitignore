@@ -4,6 +4,8 @@ node_modules/
 # Build output
 dist/
 *.tsbuildinfo
+# Local gondolin image builds (multi-hundred-MB artifacts; rebuild via scripts/build-image.sh)
+images/*/out-*/
 
 # Environment & secrets
 .env

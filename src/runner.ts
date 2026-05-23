@@ -23,7 +23,8 @@ import type { RunConfig } from "./args.js";
 import { Emitter, type EmitterSink } from "./emitter.js";
 import { loadGitHubExtension, isMisconfigurationSkip } from "./extensions/github/index.js";
 import { resolveModel } from "./models.js";
-import { buildSandbox, type SandboxResult } from "./sandbox/index.js";
+import { buildSandbox, type ImageDescriptor, type SandboxResult } from "./sandbox/index.js";
+import { ensureImage, ImageLoaderError } from "./sandbox/images/loader.js";
 
 export interface RunOnceDeps {
   /** Sink for all JSONL records. Required. */
@@ -85,6 +86,41 @@ export async function runOnce(
     Object.assign(sandboxEnv, config.sandboxEnv);
   }
 
+  // Resolve --sandbox-image to an absolute path + descriptor. Default
+  // when --sandbox=gondolin is "default" (auto-downloaded
+  // agentic-pi-dev image). Explicit "gondolin-builtin" opts out.
+  let imagePath: string | undefined;
+  let imageDescriptor: ImageDescriptor | undefined;
+  if (config.sandbox === "gondolin") {
+    const selector = config.sandboxImage ?? "default";
+    try {
+      const resolved = await ensureImage(selector);
+      if (resolved.kind === "builtin") {
+        imageDescriptor = { name: "gondolin-builtin", source: "builtin" };
+      } else {
+        imagePath = resolved.imagePath;
+        imageDescriptor = resolved.descriptor;
+      }
+    } catch (err) {
+      if (err instanceof ImageLoaderError) {
+        // When the user didn't explicitly ask for the default image
+        // (i.e. they didn't pass --sandbox-image), fall back to the
+        // gondolin builtin with a warning so they still get a working
+        // sandbox. If they passed --sandbox-image=default explicitly,
+        // a failure there is fatal — they asked for this image.
+        if (config.sandboxImage === undefined) {
+          warn(`default image unavailable (${err.message}); falling back to gondolin-builtin. Hint: ${err.hint}`);
+          imageDescriptor = { name: "gondolin-builtin", source: "builtin" };
+        } else {
+          warn(`--sandbox-image=${selector} failed: ${err.message}. Hint: ${err.hint}`);
+          return 2;
+        }
+      } else {
+        throw err;
+      }
+    }
+  }
+
   // Build the sandbox backend (boots Gondolin VM if --sandbox gondolin).
   // Done eagerly so VM-boot / preflight failures surface before any tokens
   // are spent on a prompt.
@@ -92,6 +128,8 @@ export async function runOnce(
     backend: config.sandbox,
     cwd: config.cwd,
     env: Object.keys(sandboxEnv).length > 0 ? sandboxEnv : undefined,
+    imagePath,
+    image: imageDescriptor,
   });
   if (!sandboxOutcome.ok) {
     warn(`--sandbox=${sandboxOutcome.backend} failed (${sandboxOutcome.reason}): ${sandboxOutcome.hint}`);

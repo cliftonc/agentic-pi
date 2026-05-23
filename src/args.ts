@@ -28,6 +28,15 @@ export interface RunConfig {
   /** Sandbox backend for read/write/edit/bash. */
   sandbox: "none" | "gondolin";
   /**
+   * Image to boot when `sandbox === "gondolin"`. Resolved by the image
+   * loader:
+   *   - `"default"` → bundled `agentic-pi-dev` manifest (auto-downloaded).
+   *   - `"gondolin-builtin"` → gondolin's built-in `alpine-base:latest`.
+   *   - absolute path → a local `gondolin build` output directory.
+   * Ignored when `sandbox === "none"`. Default: `"default"`.
+   */
+  sandboxImage?: string;
+  /**
    * Environment variables to inject into the sandbox VM. Ignored when
    * sandbox === "none" (Pi's host tools already inherit process.env).
    * Use this to hand `GITHUB_TOKEN`, secrets, or workflow context to the
@@ -64,6 +73,12 @@ Flags:
                               Ignored when --sandbox=none. When --profile is active,
                               GITHUB_TOKEN and GH_TOKEN are auto-injected from a minted
                               installation token (App PEM never enters the VM).
+  --sandbox-image <name>     Image to boot when --sandbox=gondolin. Values:
+                              'default' (recommended) — bundled agentic-pi-dev image
+                                with git/gh/node/python/rust baked in (auto-downloaded).
+                              'gondolin-builtin' — stock alpine-base:latest, no extras.
+                              <absolute path> — directory produced by 'gondolin build'.
+                              Default: 'default'.
   --dangerously-skip-permissions   Accepted for compat; Pi has no permission prompts anyway
 
 Reads the prompt from stdin. Emits Pi-native JSONL events on stdout, terminating
@@ -129,6 +144,14 @@ export function parseArgs(argv: string[]): RunConfig {
           throw new Error(`invalid --sandbox '${v}'. Expected: none | gondolin`);
         }
         config.sandbox = v;
+        break;
+      }
+      case "--sandbox-image": {
+        const v = next();
+        if (v.length === 0) {
+          throw new Error(`--sandbox-image requires a non-empty value`);
+        }
+        config.sandboxImage = v;
         break;
       }
       case "--sandbox-env": {
