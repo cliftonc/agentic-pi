@@ -48,6 +48,16 @@ export interface BuildSandboxOptions {
    * the runner builds it from the loader result.
    */
   image?: ImageDescriptor;
+  /**
+   * Allowed HTTP egress hosts for the sandboxed guest. See
+   * `GondolinSandboxOptions.allowedHttpHosts` for the semantics:
+   *   - `undefined` (default): GitHub-only allowlist
+   *   - explicit `string[]`: caller-supplied allowlist
+   *   - `null`: skip HTTP hooks entirely (gondolin blocks everything)
+   *
+   * Ignored when `backend === "none"`.
+   */
+  allowedHttpHosts?: string[] | null;
 }
 
 export interface ImageDescriptor {
@@ -96,6 +106,7 @@ export async function buildSandbox(opts: BuildSandboxOptions): Promise<BuildSand
       env: opts.env,
       imagePath: opts.imagePath,
       image: opts.image,
+      allowedHttpHosts: opts.allowedHttpHosts,
     });
     return {
       ok: true,

@@ -29,7 +29,7 @@ import {
   createWriteTool,
 } from "@earendil-works/pi-coding-agent";
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { RealFSProvider, VM } from "@earendil-works/gondolin";
+import { RealFSProvider, VM, createHttpHooks } from "@earendil-works/gondolin";
 
 import type { ImageDescriptor } from "./index.js";
 
@@ -179,7 +179,65 @@ export interface GondolinSandboxOptions {
   imagePath?: string;
   /** Descriptor surfaced verbatim in `status.image`. */
   image?: ImageDescriptor;
+  /**
+   * Hosts the sandboxed guest is allowed to make HTTP(S) egress to.
+   * Without an HTTP hook configured, gondolin's HTTP interceptor returns
+   * 502 to every outbound request — `git clone`, `git push`, `gh ...`,
+   * `npm install`, `pip install` all fail. When this option is set
+   * (or left at its default), `createHttpHooks({ allowedHosts })` wires
+   * up the egress proxy.
+   *
+   * Pass `null` to disable HTTP hooks entirely (gondolin will then block
+   * all HTTP egress at the QEMU layer). Pass an explicit array to scope
+   * down or extend the default. Omit to use the GitHub-only default,
+   * which matches agentic-pi's built-in github extension surface.
+   */
+  allowedHttpHosts?: string[] | null;
 }
+
+/**
+ * Hosts the sandboxed guest can reach by default. The set covers the
+ * everyday needs of a coding-agent `bash` session: git over HTTPS, gh,
+ * and the common public package registries so `npm install`, `pip
+ * install`, `cargo build`, `go mod download`, `bundle install`, and
+ * `apk add` work without extra configuration.
+ *
+ * Model-provider hosts (`api.anthropic.com`, `api.openai.com`, etc.)
+ * are deliberately omitted — agentic-pi calls the LLM from the host
+ * process, not from inside the sandbox, so the VM never needs to reach
+ * them.
+ *
+ * The list is intentionally limited to **public** registries. Anything
+ * private (internal artifact repos, npm enterprise, etc.) must be added
+ * explicitly via `--allow-host` / `allowedHttpHosts: [...]`.
+ */
+export const DEFAULT_GUEST_ALLOWED_HOSTS: readonly string[] = [
+  // GitHub — git over HTTPS + gh CLI
+  "github.com",
+  "api.github.com",
+  "codeload.github.com",
+  "objects.githubusercontent.com",
+  "raw.githubusercontent.com",
+  // npm / yarn / pnpm
+  "registry.npmjs.org",
+  "registry.yarnpkg.com",
+  // Python — pypi + wheels CDN
+  "pypi.org",
+  "files.pythonhosted.org",
+  // Rust
+  "crates.io",
+  "static.crates.io",
+  "index.crates.io",
+  // Go modules
+  "proxy.golang.org",
+  "sum.golang.org",
+  // Ruby
+  "rubygems.org",
+  // Alpine apk + Debian apt mirrors (the apk on `apk add` etc.)
+  "dl-cdn.alpinelinux.org",
+  "deb.debian.org",
+  "security.debian.org",
+];
 
 export interface GondolinSandbox {
   /** Tools to pass into `createAgentSession({ customTools })`. */
@@ -197,6 +255,12 @@ export interface GondolinSandbox {
     envKeys: string[];
     /** Image descriptor (omitted when caller didn't supply one). */
     image?: ImageDescriptor;
+    /**
+     * Resolved HTTP egress allowlist. `null` when HTTP hooks were disabled
+     * (caller passed `allowedHttpHosts: null`). Omitted when the backend
+     * doesn't have a meaningful HTTP policy.
+     */
+    allowedHttpHosts?: string[] | null;
   };
 }
 
@@ -213,6 +277,17 @@ export async function buildGondolinSandbox(
 ): Promise<GondolinSandbox> {
   const env = options.env;
   const imagePath = options.imagePath;
+
+  // HTTP egress policy. `undefined` (default) → GitHub-only allowlist via
+  // createHttpHooks; explicit array → caller-provided allowlist; `null` →
+  // skip hooks entirely (gondolin then blocks all HTTP at the QEMU layer).
+  const allowedHosts = options.allowedHttpHosts === undefined
+    ? [...DEFAULT_GUEST_ALLOWED_HOSTS]
+    : options.allowedHttpHosts;
+  const httpConfig = allowedHosts === null
+    ? undefined
+    : createHttpHooks({ allowedHosts });
+
   const t0 = Date.now();
   const vm = await VM.create({
     vfs: {
@@ -222,6 +297,7 @@ export async function buildGondolinSandbox(
     },
     ...(imagePath ? { sandbox: { imagePath } } : {}),
     ...(env && Object.keys(env).length > 0 ? { env } : {}),
+    ...(httpConfig ? { httpHooks: httpConfig.httpHooks } : {}),
   });
   const createMs = Date.now() - t0;
 
@@ -269,6 +345,7 @@ export async function buildGondolinSandbox(
       createMs,
       envKeys: env ? Object.keys(env).sort() : [],
       ...(options.image ? { image: options.image } : {}),
+      allowedHttpHosts: allowedHosts === null ? null : [...allowedHosts],
     },
     close: async () => {
       if (closed) return;

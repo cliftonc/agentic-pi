@@ -48,6 +48,19 @@ export interface RunConfig {
    * `GH_TOKEN`. User-provided values override the auto-injected ones.
    */
   sandboxEnv?: Record<string, string>;
+  /**
+   * HTTP egress allowlist for the sandbox VM. Without this, gondolin
+   * returns 502 to every outbound request from inside the VM —
+   * `git clone`, `git push`, `gh api`, `npm install`, `pip install` all
+   * fail. Default: a built-in GitHub-only list (github.com,
+   * api.github.com, codeload.github.com, objects.githubusercontent.com,
+   * raw.githubusercontent.com).
+   *
+   * Set explicit hosts via `--allow-host <host>` (repeatable) to extend
+   * or replace the default. Pass `--no-network` to disable HTTP egress
+   * entirely. Ignored when `sandbox === "none"`.
+   */
+  allowedHttpHosts?: string[] | null;
 }
 
 export function printHelp(): void {
@@ -73,6 +86,12 @@ Flags:
                               Ignored when --sandbox=none. When --profile is active,
                               GITHUB_TOKEN and GH_TOKEN are auto-injected from a minted
                               installation token (App PEM never enters the VM).
+  --allow-host <host>        Add a host to the sandbox HTTP egress allowlist.
+                              Repeatable. First explicit use replaces the default
+                              GitHub-only allowlist; subsequent uses extend it.
+                              Ignored when --sandbox=none.
+  --no-network               Disable HTTP egress from the sandbox entirely.
+                              Ignored when --sandbox=none.
   --sandbox-image <name>     Image to boot when --sandbox=gondolin. Values:
                               'default' (recommended) — bundled agentic-pi-dev image
                                 with git/gh/node/python/rust baked in (auto-downloaded).
@@ -168,6 +187,24 @@ export function parseArgs(argv: string[]): RunConfig {
         config.sandboxEnv = { ...(config.sandboxEnv ?? {}), [key]: val };
         break;
       }
+      case "--allow-host": {
+        const v = next().trim();
+        if (!v) throw new Error("--allow-host requires a non-empty host");
+        if (!/^[A-Za-z0-9.\-*]+$/.test(v)) {
+          throw new Error(`--allow-host must be a host pattern (got '${v}')`);
+        }
+        // First explicit --allow-host replaces the default GitHub list;
+        // subsequent ones extend. Pass --no-network first to start from
+        // an empty allowlist with HTTP enabled? No — --no-network sets
+        // null (HTTP disabled). To start from empty allow-list, pass an
+        // explicit `--allow-host` for whatever you want and nothing else.
+        const cur = Array.isArray(config.allowedHttpHosts) ? config.allowedHttpHosts : [];
+        config.allowedHttpHosts = [...cur, v];
+        break;
+      }
+      case "--no-network":
+        config.allowedHttpHosts = null;
+        break;
       case "-h":
       case "--help":
         printHelp();

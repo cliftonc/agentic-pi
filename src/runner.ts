@@ -130,6 +130,7 @@ export async function runOnce(
     env: Object.keys(sandboxEnv).length > 0 ? sandboxEnv : undefined,
     imagePath,
     image: imageDescriptor,
+    allowedHttpHosts: config.allowedHttpHosts,
   });
   if (!sandboxOutcome.ok) {
     warn(`--sandbox=${sandboxOutcome.backend} failed (${sandboxOutcome.reason}): ${sandboxOutcome.hint}`);

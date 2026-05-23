@@ -69,6 +69,20 @@ export interface RunOptions {
    * as `GITHUB_TOKEN` + `GH_TOKEN` — values here override the auto ones.
    */
   sandboxEnv?: Record<string, string>;
+  /**
+   * HTTP egress allowlist for the sandbox VM. Without this, gondolin's
+   * HTTP interceptor returns 502 to every outbound request.
+   *
+   *   - `undefined` (default): allow the standard GitHub hosts + common
+   *      public package registries (npm, pypi, crates, go, rubygems,
+   *      alpine/debian apt). See `DEFAULT_GUEST_ALLOWED_HOSTS` in
+   *      `sandbox/gondolin.ts` for the exact list.
+   *   - explicit `string[]`: caller-supplied allowlist (replaces default).
+   *   - `null`: disable HTTP hooks entirely; gondolin blocks egress.
+   *
+   * Ignored when `sandbox: "none"`.
+   */
+  allowedHttpHosts?: string[] | null;
 
   // ── Observability hooks ─────────────────────────────────────────
   /**
@@ -177,6 +191,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     sandbox: options.sandbox ?? "none",
     sandboxEnv: options.sandboxEnv,
     sandboxImage: options.sandboxImage,
+    allowedHttpHosts: options.allowedHttpHosts,
   };
 
   const collector = new CollectorSink(options.onEvent);
