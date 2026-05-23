@@ -47,18 +47,10 @@ export async function runOnce(
 
   const sessionManager = buildSessionManager(config);
 
-  // Build the sandbox backend (boots Gondolin VM if --sandbox gondolin).
-  // Done eagerly so VM-boot / preflight failures surface before any tokens
-  // are spent on a prompt.
-  const sandboxOutcome = await buildSandbox({ backend: config.sandbox, cwd: config.cwd });
-  if (!sandboxOutcome.ok) {
-    warn(`--sandbox=${sandboxOutcome.backend} failed (${sandboxOutcome.reason}): ${sandboxOutcome.hint}`);
-    return 2;
-  }
-  const sandbox: SandboxResult = sandboxOutcome.sandbox;
-
-  // Build the GitHub extension up-front so we can surface auth issues before
-  // creating the session (rather than at first tool call).
+  // GitHub extension built FIRST so the runner can mint an installation
+  // token before the sandbox boots — the token is one of the env values
+  // we hand to the VM. Building the extension is cheap (no LLM, no IO
+  // except reading the PEM); failures surface as a warning, not an exit.
   const github = loadGitHubExtension(config.profile);
 
   // Loud about misconfigurations (partial App creds, unreadable PEM) — the
@@ -73,6 +65,39 @@ export async function runOnce(
   ) {
     warn(`--profile=${config.profile} set but no GITHUB_APP_* or GITHUB_TOKEN env vars found; GitHub tools disabled`);
   }
+
+  // Compose the env for the sandbox VM. Order (later wins):
+  //   1. Auto-injected GITHUB_TOKEN/GH_TOKEN from a minted installation
+  //      token (when sandbox=gondolin AND github extension is configured).
+  //   2. User-provided --sandbox-env entries.
+  // App PEM is never copied into the VM — only the short-lived token.
+  const sandboxEnv: Record<string, string> = {};
+  if (config.sandbox === "gondolin" && github.status === "configured" && github.auth) {
+    try {
+      const token = await github.auth.getToken();
+      sandboxEnv.GITHUB_TOKEN = token;
+      sandboxEnv.GH_TOKEN = token;
+    } catch (err) {
+      warn(`Could not mint a GitHub installation token for sandbox env: ${(err as Error).message}`);
+    }
+  }
+  if (config.sandboxEnv) {
+    Object.assign(sandboxEnv, config.sandboxEnv);
+  }
+
+  // Build the sandbox backend (boots Gondolin VM if --sandbox gondolin).
+  // Done eagerly so VM-boot / preflight failures surface before any tokens
+  // are spent on a prompt.
+  const sandboxOutcome = await buildSandbox({
+    backend: config.sandbox,
+    cwd: config.cwd,
+    env: Object.keys(sandboxEnv).length > 0 ? sandboxEnv : undefined,
+  });
+  if (!sandboxOutcome.ok) {
+    warn(`--sandbox=${sandboxOutcome.backend} failed (${sandboxOutcome.reason}): ${sandboxOutcome.hint}`);
+    return 2;
+  }
+  const sandbox: SandboxResult = sandboxOutcome.sandbox;
 
   // When a sandbox is active it supplies its own read/write/edit/bash that
   // route through the VM; Pi's host built-ins of the same names must be

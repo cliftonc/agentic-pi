@@ -27,6 +27,18 @@ export interface RunConfig {
   dangerouslySkipPermissions: boolean;
   /** Sandbox backend for read/write/edit/bash. */
   sandbox: "none" | "gondolin";
+  /**
+   * Environment variables to inject into the sandbox VM. Ignored when
+   * sandbox === "none" (Pi's host tools already inherit process.env).
+   * Use this to hand `GITHUB_TOKEN`, secrets, or workflow context to the
+   * agent's `bash` calls inside the VM.
+   *
+   * Set via `--sandbox-env KEY=VAL` (repeatable). When `--profile` is
+   * active and the GitHub extension is configured, a short-lived
+   * installation token is auto-injected as both `GITHUB_TOKEN` and
+   * `GH_TOKEN`. User-provided values override the auto-injected ones.
+   */
+  sandboxEnv?: Record<string, string>;
 }
 
 export function printHelp(): void {
@@ -48,6 +60,10 @@ Flags:
                               Default: none. 'gondolin' boots a per-run QEMU micro-VM
                               mounting the cwd at /workspace. Requires QEMU on host;
                               native only (Docker-in-Docker not viable; see SPIKE-gondolin.md).
+  --sandbox-env KEY=VAL      Inject env var into the sandbox VM. Repeatable.
+                              Ignored when --sandbox=none. When --profile is active,
+                              GITHUB_TOKEN and GH_TOKEN are auto-injected from a minted
+                              installation token (App PEM never enters the VM).
   --dangerously-skip-permissions   Accepted for compat; Pi has no permission prompts anyway
 
 Reads the prompt from stdin. Emits Pi-native JSONL events on stdout, terminating
@@ -113,6 +129,20 @@ export function parseArgs(argv: string[]): RunConfig {
           throw new Error(`invalid --sandbox '${v}'. Expected: none | gondolin`);
         }
         config.sandbox = v;
+        break;
+      }
+      case "--sandbox-env": {
+        const v = next();
+        const eq = v.indexOf("=");
+        if (eq < 1) {
+          throw new Error(`--sandbox-env must be KEY=VAL (got '${v}')`);
+        }
+        const key = v.slice(0, eq);
+        const val = v.slice(eq + 1);
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) {
+          throw new Error(`--sandbox-env KEY must match POSIX identifier rules (got '${key}')`);
+        }
+        config.sandboxEnv = { ...(config.sandboxEnv ?? {}), [key]: val };
         break;
       }
       case "-h":

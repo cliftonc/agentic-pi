@@ -53,6 +53,13 @@ export interface RunOptions {
   noBuiltinTools?: boolean;
   /** Explicit tool allowlist. */
   tools?: string[];
+  /**
+   * Environment variables to inject into the sandbox VM (ignored when
+   * `sandbox: "none"`). When `sandbox: "gondolin"` with a `profile`
+   * configured, a short-lived GitHub installation token is auto-injected
+   * as `GITHUB_TOKEN` + `GH_TOKEN` — values here override the auto ones.
+   */
+  sandboxEnv?: Record<string, string>;
 
   // ── Observability hooks ─────────────────────────────────────────
   /**
@@ -159,6 +166,7 @@ export async function run(options: RunOptions): Promise<RunResult> {
     tools: options.tools,
     dangerouslySkipPermissions: false,
     sandbox: options.sandbox ?? "none",
+    sandboxEnv: options.sandboxEnv,
   };
 
   const collector = new CollectorSink(options.onEvent);

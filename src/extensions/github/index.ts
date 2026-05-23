@@ -12,7 +12,7 @@
 
 import type { ToolDefinition } from "@earendil-works/pi-coding-agent";
 
-import { buildAuthFromEnv, type AuthFailureReason } from "./auth.js";
+import { buildAuthFromEnv, type AuthFailureReason, type GitHubAuth } from "./auth.js";
 import { buildGitHubTools } from "./tools.js";
 import {
   PROFILE_TOOLS,
@@ -41,6 +41,13 @@ export interface GitHubExtensionResult {
   message?: string;
   /** Always echoed back so the consumer knows what they asked for. */
   profile?: GitAccessProfile;
+  /**
+   * The auth backend that was constructed (App or static-token). Exposed
+   * so the runner can mint a short-lived installation token to inject
+   * into the sandbox VM as `GITHUB_TOKEN`. Only present when
+   * `status === "configured"`.
+   */
+  auth?: GitHubAuth;
 }
 
 /**
@@ -88,6 +95,7 @@ export function loadGitHubExtension(profileName?: string): GitHubExtensionResult
     toolNames: profileTools.map((t) => t.name),
     status: "configured",
     profile: profileName,
+    auth,
   };
 }
 

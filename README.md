@@ -169,15 +169,31 @@ Linux + KVM should be in the same ballpark. Numbers are reproducible
 from `test/fixtures/phase3-smoke-sandbox-gondolin.jsonl`.
 
 **Event stream.** A `sandbox_status` JSONL line is emitted right after
-the session header:
+the session header. It carries an `envKeys` list (just the keys, never
+the values) so consumers can verify which env vars were handed to the VM:
 
 ```jsonl
-{"type":"sandbox_status","backend":"gondolin","status":{"backend":"gondolin","cwd":"/path/to/workspace","guestPath":"/workspace","createMs":47},"sessionId":"…","timestamp":"…"}
+{"type":"sandbox_status","backend":"gondolin","status":{"backend":"gondolin","cwd":"/path/to/workspace","guestPath":"/workspace","createMs":47,"envKeys":["GH_TOKEN","GITHUB_TOKEN"]},"sessionId":"…","timestamp":"…"}
 ```
 
 If `--sandbox none` (the default), the same line is still emitted with
 `backend: "none"` so downstream consumers always know which mode the run
 used.
+
+**Passing env into the VM.** Use `--sandbox-env KEY=VAL` on the CLI
+(repeatable), or `sandboxEnv: { KEY: "VAL" }` on the programmatic API.
+The agent's `bash` calls see these as ordinary environment variables.
+
+When `--profile <github>` is also active and the GitHub extension is
+configured, agentic-pi automatically mints a short-lived installation
+token via the configured auth backend (App JWT exchange, or static
+`GITHUB_TOKEN` passthrough) and injects it as **both** `GITHUB_TOKEN`
+and `GH_TOKEN`. Inside the VM, `git push`, `git fetch`, and `gh`
+commands work without further setup.
+
+The **App PEM is never copied into the VM** — only the resulting token,
+which is short-lived. User-supplied `--sandbox-env GITHUB_TOKEN=…`
+overrides the auto-injected value if you need to scope down further.
 
 ## When to use this
 
@@ -237,6 +253,7 @@ GITHUB_TOKEN=ghp_…
 | `--no-builtin-tools` | Disable Pi's `read,write,edit,bash,grep,find,ls`. |
 | `--tools <a,b,c>` | Explicit tool allowlist (combined with profile if set). |
 | `--sandbox <none\|gondolin>` | Route `read`/`write`/`edit`/`bash` through a sandbox backend. Default `none`. `gondolin` boots a QEMU micro-VM mounting cwd at `/workspace`. Requires QEMU on the host; native-only (not Docker-in-Docker). See section 8. |
+| `--sandbox-env KEY=VAL` | Inject env var into the sandbox VM (repeatable). Ignored when `--sandbox=none`. Auto-injects a minted `GITHUB_TOKEN`/`GH_TOKEN` when `--profile` is also active. |
 | `--dangerously-skip-permissions` | Accepted for caller-side compatibility. No-op. |
 
 Reads the prompt from stdin. Emits JSONL on stdout. Exits 0 on `agent_end`,
@@ -282,6 +299,14 @@ const result = await run({
   sandbox: "none",
   noSession: true,
   cwd: "/path/to/workspace",
+
+  // Per-run env handed to the sandbox VM. Ignored when sandbox="none".
+  // When sandbox="gondolin" + profile is set, GITHUB_TOKEN/GH_TOKEN are
+  // auto-injected from a minted installation token — explicit values
+  // here win.
+  sandboxEnv: {
+    CI_BUILD_REF: process.env.GITHUB_SHA ?? "",
+  },
 
   // Optional observability hooks. Both are pure callbacks — no I/O happens
   // unless you do something with the values.

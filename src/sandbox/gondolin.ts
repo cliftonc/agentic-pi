@@ -156,6 +156,19 @@ function createGondolinBashOps(vm: VM, localCwd: string): BashOperations {
   };
 }
 
+export interface GondolinSandboxOptions {
+  /**
+   * Environment variables to set inside the guest VM. Available to every
+   * `bash` invocation the agent makes. Use this to hand credentials,
+   * workflow context, or feature flags to the sandboxed process.
+   *
+   * Note: gondolin docs explicitly warn against baking secrets into
+   * pre-built images; runtime env is the supported channel for
+   * credentials, which is what this option exists for.
+   */
+  env?: Record<string, string>;
+}
+
 export interface GondolinSandbox {
   /** Tools to pass into `createAgentSession({ customTools })`. */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -168,6 +181,8 @@ export interface GondolinSandbox {
     cwd: string;
     guestPath: string;
     createMs: number;
+    /** Sorted list of env var KEY names injected (values omitted for safety). */
+    envKeys: string[];
   };
 }
 
@@ -178,7 +193,11 @@ export interface GondolinSandbox {
  * Throws if VM.create rejects. The preflight check is the caller's
  * responsibility — call `preflightGondolin()` first.
  */
-export async function buildGondolinSandbox(cwd: string): Promise<GondolinSandbox> {
+export async function buildGondolinSandbox(
+  cwd: string,
+  options: GondolinSandboxOptions = {},
+): Promise<GondolinSandbox> {
+  const env = options.env;
   const t0 = Date.now();
   const vm = await VM.create({
     vfs: {
@@ -186,6 +205,7 @@ export async function buildGondolinSandbox(cwd: string): Promise<GondolinSandbox
         [GUEST_WORKSPACE]: new RealFSProvider(cwd),
       },
     },
+    ...(env && Object.keys(env).length > 0 ? { env } : {}),
   });
   const createMs = Date.now() - t0;
 
@@ -231,6 +251,7 @@ export async function buildGondolinSandbox(cwd: string): Promise<GondolinSandbox
       cwd,
       guestPath: GUEST_WORKSPACE,
       createMs,
+      envKeys: env ? Object.keys(env).sort() : [],
     },
     close: async () => {
       if (closed) return;

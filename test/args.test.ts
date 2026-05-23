@@ -85,6 +85,59 @@ describe("parseArgs", () => {
     assert.equal(cfg.noBuiltinTools, true);
   });
 
+  test("--sandbox-env captures one KEY=VAL pair", () => {
+    const cfg = parseArgs(["--model", "openai/gpt-4", "--sandbox-env", "FOO=bar"]);
+    assert.deepEqual(cfg.sandboxEnv, { FOO: "bar" });
+  });
+
+  test("--sandbox-env is repeatable and accumulates", () => {
+    const cfg = parseArgs([
+      "--model", "openai/gpt-4",
+      "--sandbox-env", "A=1",
+      "--sandbox-env", "B=2",
+      "--sandbox-env", "C=three=with=equals",
+    ]);
+    assert.deepEqual(cfg.sandboxEnv, { A: "1", B: "2", C: "three=with=equals" });
+  });
+
+  test("--sandbox-env allows empty value", () => {
+    const cfg = parseArgs(["--model", "openai/gpt-4", "--sandbox-env", "EMPTY="]);
+    assert.deepEqual(cfg.sandboxEnv, { EMPTY: "" });
+  });
+
+  test("--sandbox-env rejects values without '='", () => {
+    assert.throws(
+      () => parseArgs(["--model", "openai/gpt-4", "--sandbox-env", "JUSTKEY"]),
+      /must be KEY=VAL/,
+    );
+  });
+
+  test("--sandbox-env rejects empty KEY", () => {
+    assert.throws(
+      () => parseArgs(["--model", "openai/gpt-4", "--sandbox-env", "=value"]),
+      /must be KEY=VAL/,
+    );
+  });
+
+  test("--sandbox-env rejects invalid identifier characters", () => {
+    for (const bad of ["FOO-BAR", "foo bar", "1FOO", "foo.bar"]) {
+      assert.throws(
+        () => parseArgs(["--model", "openai/gpt-4", "--sandbox-env", `${bad}=x`]),
+        /POSIX identifier/,
+        `expected reject: ${bad}`,
+      );
+    }
+  });
+
+  test("--sandbox-env later key overrides earlier", () => {
+    const cfg = parseArgs([
+      "--model", "openai/gpt-4",
+      "--sandbox-env", "X=first",
+      "--sandbox-env", "X=second",
+    ]);
+    assert.deepEqual(cfg.sandboxEnv, { X: "second" });
+  });
+
   test("unknown flag throws", () => {
     assert.throws(
       () => parseArgs(["--model", "openai/gpt-4", "--bogus"]),

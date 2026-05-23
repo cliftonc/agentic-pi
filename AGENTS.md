@@ -122,6 +122,16 @@ SPIKE-gondolin.md         Spike write-up: why sandbox is native-only.
    contract test `test/run.integration.test.ts` enforces this by running
    `run()` in a child process and asserting empty stdout/stderr.
 
+8. **The GitHub App PEM must never enter the sandbox VM.** Only minted
+   installation tokens cross the host→guest boundary. The runner mints
+   the token via `github.auth.getToken()` *before* the sandbox boots
+   and passes only the resulting string to `buildSandbox({ env })`. If
+   you find yourself adding `GITHUB_APP_PRIVATE_KEY_PATH` or similar to
+   the `sandboxEnv` composition in `runner.ts`, stop — that path leaks
+   long-lived credentials into a short-lived sandbox, which defeats
+   the whole point. Use the existing `auth` exposed on
+   `GitHubExtensionResult` instead.
+
 ## Style and conventions
 
 - **TypeScript, strict mode.** ESM. `moduleResolution: "NodeNext"`, so

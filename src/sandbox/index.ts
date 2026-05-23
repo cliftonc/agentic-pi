@@ -32,6 +32,8 @@ export type SandboxResult = SandboxNone | (Omit<GondolinSandbox, "status"> & {
 export interface BuildSandboxOptions {
   backend: SandboxBackend;
   cwd: string;
+  /** Env vars to inject into the sandbox (ignored when backend === "none"). */
+  env?: Record<string, string>;
 }
 
 export type BuildSandboxOutcome =
@@ -69,7 +71,7 @@ export async function buildSandbox(opts: BuildSandboxOptions): Promise<BuildSand
   }
 
   try {
-    const sandbox = await buildGondolinSandbox(opts.cwd);
+    const sandbox = await buildGondolinSandbox(opts.cwd, { env: opts.env });
     return {
       ok: true,
       sandbox: {
