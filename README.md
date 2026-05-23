@@ -382,18 +382,23 @@ agentic-pi publishes to npm via a GitHub Actions workflow using **npm
 trusted publishing** (OIDC) — no `NPM_TOKEN` secret is needed in the
 repo.
 
-To cut a release:
+To cut a release (recommended path):
 
-1. Bump `version` in `package.json` (e.g. `0.1.0` → `0.2.0`).
-2. Commit the bump.
-3. Tag: `git tag v0.2.0 && git push --tags`.
-4. The `publish.yml` workflow runs: it verifies the tag matches
-   `package.json`, type-checks, builds, runs unit tests, then runs
-   `npm publish --provenance --access public`.
+1. Bump `version` in `package.json` — `npm version patch` does this, plus
+   commit and tag, in one step.
+2. Push the commit and tag: `git push --follow-tags`.
+3. Create a GitHub Release on the new tag, e.g.
+   `gh release create v0.2.0 --generate-notes` or via the GitHub web UI.
+4. The `publish.yml` workflow runs on the `release: published` event.
 
-The workflow fails the publish step if the tag and `package.json` version
-don't match — there is no path that publishes a version not represented
-in the repo at that exact commit.
+The workflow also triggers on bare `v*.*.*` tag pushes and on manual
+`workflow_dispatch`. The `release` event is the preferred path because
+tag-push events get suppressed when a tag is pushed in the same `git
+push` invocation as branch commits — a real GitHub Actions quirk.
+
+The publish step fails if the tag (or the dispatch `ref` input) doesn't
+match `package.json` version — there is no path that publishes a version
+not represented in the repo at that exact commit.
 
 ### One-time setup (trusted publisher)
 

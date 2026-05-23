@@ -1,9 +1,26 @@
 name: Publish to npm
 
 on:
+  # Preferred path: create a GitHub Release. This fires reliably even when
+  # the underlying tag was pushed alongside branch commits (which can
+  # suppress a bare `push: tags:` event).
+  release:
+    types: [published]
+
+  # Backup: bare tag push (works when the tag is pushed in its own
+  # `git push` invocation, separate from any branch push).
   push:
     tags:
       - 'v*.*.*'
+
+  # Manual escape hatch: kick off a publish from the Actions tab. Accepts
+  # an explicit `ref` so you can re-run a previous tag's publish.
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'Tag or commit SHA to publish (e.g. v0.1.1)'
+        required: true
+        type: string
 
 permissions:
   contents: read
@@ -21,6 +38,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          # `release` events default to checking out the release's target
+          # commit; `push` tags use GITHUB_REF; `workflow_dispatch` needs
+          # the explicit input. This branch handles all three.
+          ref: ${{ inputs.ref || github.event.release.tag_name || github.ref }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -44,10 +66,19 @@ jobs:
       # previous one's still there).
       - name: Verify tag matches package.json version
         run: |
-          tag="${GITHUB_REF#refs/tags/v}"
+          # Resolve the tag from whichever trigger fired this run.
+          if [ -n "${{ inputs.ref }}" ]; then
+            tag_ref="${{ inputs.ref }}"
+          elif [ -n "${{ github.event.release.tag_name }}" ]; then
+            tag_ref="${{ github.event.release.tag_name }}"
+          else
+            tag_ref="${GITHUB_REF#refs/tags/}"
+          fi
+          # Strip the leading 'v' if present.
+          tag="${tag_ref#v}"
           pkg=$(node -p "require('./package.json').version")
           if [ "$tag" != "$pkg" ]; then
-            echo "::error::Tag v$tag does not match package.json version $pkg"
+            echo "::error::Tag ref '$tag_ref' (version '$tag') does not match package.json version '$pkg'"
             exit 1
           fi
           echo "Publishing version $pkg"
