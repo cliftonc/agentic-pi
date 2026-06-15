@@ -77,6 +77,17 @@ export interface RunConfig {
    * Set via `--web-search-max-calls <n>`.
    */
   webSearchMaxCalls?: number;
+  /**
+   * File-search extension (FFF) toggle. Default: true — bundled and
+   * enabled for every run. Pass `--no-file-search` to fall back to Pi's
+   * built-in find/grep.
+   */
+  fileSearch: boolean;
+  /**
+   * FFF mode. Default: "override" (FFF replaces built-in find/grep under
+   * the same names). Set via `--file-search-mode <override|tools-only|tools-and-ui>`.
+   */
+  fileSearchMode?: "override" | "tools-only" | "tools-and-ui";
 }
 
 export function printHelp(): void {
@@ -117,6 +128,11 @@ Flags:
   --web-search-max-calls <n> Cap combined web_search + web_fetch calls per run.
                               Default: 30. When exceeded, further calls return a
                               structured error result.
+  --no-file-search           Disable the bundled FFF file-search extension; fall
+                              back to Pi's built-in find/grep.
+  --file-search-mode <m>     FFF mode: override | tools-only | tools-and-ui.
+                              Default: override (FFF replaces built-in find/grep
+                              under the same names). Overridden by PI_FFF_MODE env.
   --sandbox-image <name>     Image to boot when --sandbox=gondolin. Values:
                               'default' (recommended) — bundled agentic-pi-dev image
                                 with git/gh/node/python/rust baked in (auto-downloaded).
@@ -139,6 +155,7 @@ export function parseArgs(argv: string[]): RunConfig {
     dangerouslySkipPermissions: false,
     sandbox: "none",
     webSearch: true,
+    fileSearch: true,
   };
 
   for (let i = 0; i < argv.length; i++) {
@@ -247,6 +264,19 @@ export function parseArgs(argv: string[]): RunConfig {
           throw new Error(`--web-search-max-calls must be a positive integer (got '${v}')`);
         }
         config.webSearchMaxCalls = n;
+        break;
+      }
+      case "--no-file-search":
+        config.fileSearch = false;
+        break;
+      case "--file-search-mode": {
+        const v = next();
+        if (v !== "override" && v !== "tools-only" && v !== "tools-and-ui") {
+          throw new Error(
+            `invalid --file-search-mode '${v}'. Expected: override | tools-only | tools-and-ui`,
+          );
+        }
+        config.fileSearchMode = v;
         break;
       }
       case "-h":

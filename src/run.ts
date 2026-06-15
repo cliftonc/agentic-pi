@@ -104,6 +104,18 @@ export interface RunOptions {
    */
   webSearchMaxCalls?: number;
 
+  /**
+   * File-search extension (FFF) toggle. Default: `true` — bundled and
+   * enabled for every run. Set to `false` to fall back to Pi's built-in
+   * `find`/`grep`.
+   */
+  fileSearch?: boolean;
+  /**
+   * FFF mode. Default: `"override"` (FFF replaces built-in `find`/`grep`
+   * under the same names). The `PI_FFF_MODE` env var, if set, wins.
+   */
+  fileSearchMode?: "override" | "tools-only" | "tools-and-ui";
+
   // ── Observability hooks ─────────────────────────────────────────
   /**
    * Called for every emitted JSONL record in order. Same shape that the
@@ -180,6 +192,13 @@ export interface RunResult {
     toolCount: number;
     maxCalls?: number;
   };
+  fileSearch?: {
+    status: "configured" | "skipped";
+    reason?: string;
+    message?: string;
+    mode?: string;
+    toolCount: number;
+  };
 
   /** Every JSONL record the run emitted, in order. */
   records: EmitterRecord[];
@@ -223,6 +242,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
     webSearch: options.webSearch ?? true,
     webSearchProvider: options.webSearchProvider,
     webSearchMaxCalls: options.webSearchMaxCalls,
+    fileSearch: options.fileSearch ?? true,
+    fileSearchMode: options.fileSearchMode,
   };
 
   const collector = new CollectorSink(options.onEvent);
@@ -289,6 +310,14 @@ function buildResult(
             provider: r.provider as string | undefined,
             toolCount: (r.toolCount as number) ?? 0,
             maxCalls: r.maxCalls as number | undefined,
+          };
+        } else if (r.extension === "file-search") {
+          result.fileSearch = {
+            status: r.status as "configured" | "skipped",
+            reason: r.reason as string | undefined,
+            message: r.message as string | undefined,
+            mode: r.mode as string | undefined,
+            toolCount: (r.toolCount as number) ?? 0,
           };
         }
         break;

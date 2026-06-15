@@ -161,6 +161,31 @@ describe("parseArgs", () => {
     );
   });
 
+  test("file search defaults to enabled, mode unset (runner defaults to override)", () => {
+    const cfg = parseArgs(["--model", "openai/gpt-4"]);
+    assert.equal(cfg.fileSearch, true);
+    assert.equal(cfg.fileSearchMode, undefined);
+  });
+
+  test("--no-file-search disables file search", () => {
+    const cfg = parseArgs(["--model", "openai/gpt-4", "--no-file-search"]);
+    assert.equal(cfg.fileSearch, false);
+  });
+
+  test("--file-search-mode accepts valid modes", () => {
+    for (const m of ["override", "tools-only", "tools-and-ui"]) {
+      const cfg = parseArgs(["--model", "openai/gpt-4", "--file-search-mode", m]);
+      assert.equal(cfg.fileSearchMode, m);
+    }
+  });
+
+  test("--file-search-mode rejects invalid mode", () => {
+    assert.throws(
+      () => parseArgs(["--model", "openai/gpt-4", "--file-search-mode", "fuzzy"]),
+      /invalid --file-search-mode/,
+    );
+  });
+
   test("unknown flag throws", () => {
     assert.throws(
       () => parseArgs(["--model", "openai/gpt-4", "--bogus"]),

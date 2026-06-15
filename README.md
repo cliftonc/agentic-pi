@@ -246,6 +246,53 @@ When skipped (no keys / `--no-web-search`), `status: "skipped"` carries a
 (explicit provider whose key is missing, or an unknown provider name)
 surface as a warning before the run starts.
 
+### 9. Default file search via FFF
+
+agentic-pi bundles [`@ff-labs/pi-fff`](https://github.com/dmtrKovalenko/fff/tree/main/packages/pi-fff)
+— a Rust-backed, git-aware, frecency-ranked, SIMD-accelerated fuzzy file/content
+search — as the **default** file-search backend. It ships as a dependency and is
+loaded for **every** run with no per-host `pi install` required.
+
+**`override` mode by default.** FFF registers under Pi's built-in tool names
+(`find`, `grep`, `multi_grep`), transparently replacing the built-ins. The agent
+gets faster, git-aware search with zero prompt changes. Switch behaviour with
+`--file-search-mode`:
+
+| Mode | Tool names | Notes |
+| --- | --- | --- |
+| `override` (default) | `find`, `grep`, `multi_grep` | Transparent replacement of Pi's built-ins. |
+| `tools-only` | `fffind`, `ffgrep`, `fff-multi-grep` | Added alongside Pi's built-ins; the agent chooses. |
+| `tools-and-ui` | same as `tools-only` | Adds `@`-mention autocomplete — useless headless; not recommended. |
+
+The CLI flag maps to FFF's `PI_FFF_MODE` env var. An explicit `PI_FFF_MODE` in the
+environment wins over the flag. Pass `--no-file-search` to disable FFF entirely and
+fall back to Pi's built-in `find`/`grep`.
+
+**Host-process execution.** Like web search, FFF runs in the agentic-pi process,
+**not** inside the Gondolin guest. Under `--sandbox gondolin`, `read`/`write`/`edit`/
+`bash` route through the VM while `find`/`grep` (FFF) run host-side against the
+bind-mounted workspace. Paths align (cwd is the mount), and FFF only touches the
+local filesystem — no egress or secret exposure.
+
+**Native binary.** FFF is a native Rust library (`@ff-labs/fff-node`) shipped as
+prebuilt per-platform binaries (`fff-bin-linux-x64-gnu`/`-musl`, `darwin`, `win32`).
+npm auto-selects the correct one at install time. In containers, run `npm install`
+on the target platform — do **not** copy `node_modules` across glibc↔musl.
+
+**Safe by default.** If pi-fff can't be resolved or its native binary fails to load
+on the platform, the run is **not** aborted — file search skips with
+`reason: "resolve-failed"` (surfaced as a warning) and the agent falls back to Pi's
+built-in `find`/`grep`.
+
+**Event stream.** A third `extension_status` event mirrors the others:
+
+```jsonl
+{"type":"extension_status","extension":"file-search","status":"configured","mode":"override","toolCount":3,"sessionId":"…","timestamp":"…"}
+```
+
+When disabled or unavailable, `status: "skipped"` carries a `reason` of
+`disabled-by-flag` or `resolve-failed`.
+
 ## When to use this
 
 - You have an orchestrator that calls a coding agent once per workflow
@@ -261,8 +308,9 @@ surface as a warning before the run starts.
 - You want generic MCP support. Pi has none by design and agentic-pi inherits
   that decision; only the GitHub tool surface is built-in.
 - You want a different tool surface (Linear, GitLab, internal APIs). Fork the
-  `extensions/github/` directory as a template, not as a runtime plugin
-  system — agentic-pi does not (yet) load arbitrary external extensions.
+  `extensions/github/` directory as a template. agentic-pi bundles specific Pi
+  extensions (GitHub, web search, FFF file search) but does not (yet) load
+  arbitrary operator-supplied extensions as a runtime plugin system.
 
 ## Usage
 
@@ -307,6 +355,8 @@ GITHUB_TOKEN=ghp_…
 | `--no-network` | Disable sandbox HTTP egress entirely. Ignored when `--sandbox=none`. |
 | `--web-search-provider <p>` | Force web-search provider: `tavily` \| `brave` \| `exa`. Default: auto-detect by env. See section 8. |
 | `--no-web-search` | Disable the web-search extension (no `web_search`/`web_fetch` tools). |
+| `--no-file-search` | Disable the bundled FFF file-search extension; fall back to Pi's built-in `find`/`grep`. |
+| `--file-search-mode <m>` | FFF mode: `override` (default) \| `tools-only` \| `tools-and-ui`. Overridden by the `PI_FFF_MODE` env var. See section 9. |
 | `--web-search-max-calls <n>` | Cap combined `web_search` + `web_fetch` calls per run. Default: 30. |
 
 Reads the prompt from stdin. Emits JSONL on stdout. Exits 0 on `agent_end`,
@@ -319,6 +369,7 @@ Reads the prompt from stdin. Emits JSONL on stdout. Exits 0 on `agent_end`,
 {"type":"sandbox_status","backend":"none","status":{"backend":"none"},"sessionId":"<uuid>","timestamp":"…"}
 {"type":"extension_status","extension":"github","status":"configured","profile":"read","toolCount":18,"sessionId":"<uuid>","timestamp":"…"}
 {"type":"extension_status","extension":"web-search","status":"configured","provider":"tavily","toolCount":2,"maxCalls":30,"sessionId":"<uuid>","timestamp":"…"}
+{"type":"extension_status","extension":"file-search","status":"configured","mode":"override","toolCount":3,"sessionId":"<uuid>","timestamp":"…"}
 {"type":"agent_start","sessionId":"<uuid>","timestamp":"…"}
 {"type":"turn_start","sessionId":"<uuid>","timestamp":"…"}
 {"type":"message_start","message":{…},"sessionId":"<uuid>","timestamp":"…"}
@@ -399,6 +450,7 @@ console.log(result.records.length);      // full event log
 | `sandbox` | `{backend, status}` \| `undefined` | Mirror of the `sandbox_status` event. |
 | `github` | `{status, reason, profile, toolCount}` \| `undefined` | Mirror of the GitHub `extension_status` event. |
 | `webSearch` | `{status, reason, provider, toolCount, maxCalls}` \| `undefined` | Mirror of the web-search `extension_status` event. |
+| `fileSearch` | `{status, reason, mode, toolCount}` \| `undefined` | Mirror of the FFF file-search `extension_status` event. |
 | `records` | `EmitterRecord[]` | Every JSONL record in order. Same shape that the CLI writes. |
 | `warnings` | `string[]` | Warnings that would have gone to stderr in CLI mode. |
 
@@ -450,6 +502,7 @@ which walks `test/` for `*.test.ts`.
 | `test/extensions/github/profiles.test.ts` | Profile → tool allowlist (counts, superset structure, scope tiering) | — |
 | `test/extensions/github/credentials.test.ts` | `assertSafeToken` and `credentialsFilePath` validation | — |
 | `test/extensions/web-search/*.test.ts` | Provider selection, extension wiring, safe-fetch rails, HTML extraction, rate limiter, per-provider normalization (all with injected `fetchImpl`) | — |
+| `test/extensions/file-search/index.test.ts` | FFF extension wiring: mode → tool names, package resolution, disabled-by-flag + resolve-failed skips | — |
 | `test/sandbox/preflight.test.ts` | Preflight returns a structured ok\|error result | — |
 | `test/run.integration.test.ts` | Programmatic `run()`: RunResult populated, onEvent fires for every record, **child-process check confirms zero stdout/stderr leak from library** | `OPENAI_API_KEY` not set |
 | `test/run-sandbox.integration.test.ts` | `run({ sandbox: "gondolin" })` boots a VM, agent's `write` tool produces a host file via the mount | `OPENAI_API_KEY` not set OR QEMU/preflight unavailable |
@@ -521,6 +574,8 @@ src/
     credentials.ts             git credential-store file writer (mode 600)
     profiles.ts                4 profiles → tool name allowlists
     tools.ts                   31 defineTool() registrations
+  extensions/file-search/
+    index.ts                   loadFileSearchExtension() — resolves bundled @ff-labs/pi-fff
   sandbox/
     index.ts                   buildSandbox(backend) dispatcher
     preflight.ts               QEMU + accelerator detection (refuses to start if hung)
