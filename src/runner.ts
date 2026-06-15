@@ -13,9 +13,11 @@
 
 import {
   AuthStorage,
+  DefaultResourceLoader,
   ModelRegistry,
   SessionManager,
   createAgentSession,
+  getAgentDir,
 } from "@earendil-works/pi-coding-agent";
 import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
 
@@ -26,6 +28,10 @@ import {
   loadWebSearchExtension,
   isMisconfigurationSkip as isWebSearchMisconfig,
 } from "./extensions/web-search/index.js";
+import {
+  loadFileSearchExtension,
+  isMisconfigurationSkip as isFileSearchMisconfig,
+} from "./extensions/file-search/index.js";
 import { resolveModel } from "./models.js";
 import { buildSandbox, type ImageDescriptor, type SandboxResult } from "./sandbox/index.js";
 import { ensureImage, ImageLoaderError } from "./sandbox/images/loader.js";
@@ -86,6 +92,25 @@ export async function runOnce(
     // e.g. "multiple provider keys present; using tavily — set
     // WEB_SEARCH_PROVIDER to override". Soft warning, not a misconfig.
     warn(`web-search: ${webSearch.message}`);
+  }
+
+  // File-search extension (FFF). Bundled, default-on. Unlike github /
+  // web-search it doesn't contribute customTools — it's a full Pi
+  // extension loaded through the resource loader below. Here we only
+  // resolve the package and decide the mode; load failures are
+  // non-fatal (the agent falls back to Pi's built-in find/grep).
+  const fileSearch = loadFileSearchExtension({
+    fileSearch: config.fileSearch,
+    fileSearchMode: config.fileSearchMode,
+  });
+  // pi-fff reads its mode from the PI_FFF_MODE env in SDK mode (there is
+  // no CLI flag source). Publish the resolved mode, but never clobber an
+  // explicit operator-set value.
+  if (fileSearch.status === "configured" && fileSearch.mode && !process.env.PI_FFF_MODE) {
+    process.env.PI_FFF_MODE = fileSearch.mode;
+  }
+  if (isFileSearchMisconfig(fileSearch)) {
+    warn(`file-search extension disabled (${fileSearch.reason}): ${fileSearch.message ?? ""}`);
   }
 
   // Compose the env for the sandbox VM. Order (later wins):
@@ -167,6 +192,34 @@ export async function runOnce(
     sandbox.suppressBuiltins ? "builtin" :
     undefined;
 
+  // Build the resource loader ourselves so we can inject the bundled
+  // pi-fff extension via additionalExtensionPaths while preserving Pi's
+  // default discovery (~/.pi/agent + project .pi). Mirrors the loader
+  // createAgentSession would build by default (same cwd + agentDir).
+  const agentDir = getAgentDir();
+  const resourceLoader = new DefaultResourceLoader({
+    cwd: config.cwd,
+    agentDir,
+    additionalExtensionPaths: fileSearch.packageDir ? [fileSearch.packageDir] : [],
+  });
+  await resourceLoader.reload();
+
+  // A load failure (e.g. missing native binary for this platform) is
+  // collected, not thrown — downgrade to a skip and warn so the run
+  // continues on Pi's built-in find/grep.
+  if (fileSearch.status === "configured" && fileSearch.packageDir) {
+    const loadError = resourceLoader
+      .getExtensions()
+      .errors.find((e) => e.path.startsWith(fileSearch.packageDir!));
+    if (loadError) {
+      fileSearch.status = "skipped";
+      fileSearch.reason = "resolve-failed";
+      fileSearch.message = `pi-fff failed to load: ${loadError.error}`;
+      fileSearch.toolNames = [];
+      warn(`file-search extension disabled (resolve-failed): ${loadError.error}`);
+    }
+  }
+
   const { session } = await createAgentSession({
     cwd: config.cwd,
     model,
@@ -174,6 +227,7 @@ export async function runOnce(
     sessionManager,
     authStorage,
     modelRegistry,
+    resourceLoader,
     tools: config.tools,
     noTools: noToolsMode,
     customTools: [...sandbox.customTools, ...github.customTools, ...webSearch.customTools],
@@ -212,6 +266,15 @@ export async function runOnce(
     provider: webSearch.provider,
     toolCount: webSearch.toolNames.length,
     maxCalls: webSearch.maxCalls,
+  });
+  emitter.event({
+    type: "extension_status",
+    extension: "file-search",
+    status: fileSearch.status,
+    reason: fileSearch.reason,
+    message: fileSearch.message,
+    mode: fileSearch.mode,
+    toolCount: fileSearch.toolNames.length,
   });
 
   let sawError = false;
