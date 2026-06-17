@@ -35,6 +35,7 @@ import {
 import { resolveModel } from "./models.js";
 import { buildSandbox, type ImageDescriptor, type SandboxResult } from "./sandbox/index.js";
 import { ensureImage, ImageLoaderError } from "./sandbox/images/loader.js";
+import { createTelemetry, resolveTelemetryConfig } from "./telemetry/index.js";
 
 export interface RunOnceDeps {
   /** Sink for all JSONL records. Required. */
@@ -51,6 +52,10 @@ export async function runOnce(
   deps: RunOnceDeps,
 ): Promise<RunOnceExitCode> {
   const warn = deps.onWarn ?? (() => undefined);
+
+  // Resolved up front so the telemetry extension_status can be emitted in the
+  // same block as the others. Off unless explicitly enabled (see resolver).
+  const telemetryConfig = resolveTelemetryConfig(config, process.env);
 
   const authStorage = AuthStorage.create();
   const modelRegistry = ModelRegistry.create(authStorage);
@@ -233,6 +238,17 @@ export async function runOnce(
     customTools: [...sandbox.customTools, ...github.customTools, ...webSearch.customTools],
   });
 
+  // Telemetry observes the raw event stream below. Built after the session so
+  // it can stamp spans with the real sessionId. When disabled this is a cheap
+  // no-op that imports no OTEL SDK; init failures degrade to a skip + warning.
+  const telemetry = await createTelemetry({
+    config: telemetryConfig,
+    sessionId: session.sessionId,
+    model: config.model,
+    sandboxBackend: sandbox.backend,
+    onWarn: warn,
+  });
+
   const emitter = new Emitter(
     {
       sessionId: session.sessionId,
@@ -276,11 +292,25 @@ export async function runOnce(
     mode: fileSearch.mode,
     toolCount: fileSearch.toolNames.length,
   });
+  // Only surfaced when telemetry was actually requested (enabled, or explicitly
+  // --no-otel). A silent default run emits nothing here, so the existing JSONL
+  // fixtures stay valid (AGENTS.md rule #2).
+  if (telemetryConfig.enabled || telemetryConfig.reason === "disabled-by-flag") {
+    emitter.event({
+      type: "extension_status",
+      extension: "telemetry",
+      status: telemetry.status,
+      reason: telemetry.reason,
+      message: telemetry.message,
+      includeContent: telemetryConfig.includeContent,
+    });
+  }
 
   let sawError = false;
   let agentEndSeen = false;
 
   const unsubscribe = session.subscribe((event: AgentSessionEvent) => {
+    telemetry.onEvent(event);
     emitter.event(event as unknown as Record<string, unknown> & { type: string });
 
     if (event.type === "tool_execution_end" && event.isError) {
@@ -299,6 +329,8 @@ export async function runOnce(
       error: { name: (err as Error).name, message: (err as Error).message },
     });
     unsubscribe();
+    telemetry.recordFatal(err as Error);
+    await telemetry.shutdown();
     session.dispose();
     await sandbox.close();
     return 1;
@@ -308,6 +340,7 @@ export async function runOnce(
   // does not carry per-event token/cost; lastlight reads this terminal event.
   try {
     const stats = session.getSessionStats();
+    telemetry.recordSessionStats(stats);
     emitter.event({
       type: "usage_snapshot",
       stats: {
@@ -327,6 +360,7 @@ export async function runOnce(
   }
 
   unsubscribe();
+  await telemetry.shutdown();
   session.dispose();
   await sandbox.close();
 

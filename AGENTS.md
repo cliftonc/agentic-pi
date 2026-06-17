@@ -65,6 +65,14 @@ src/
     index.ts              buildSandbox(backend) dispatcher. Returns ok|err.
     preflight.ts          QEMU + accelerator detection. Returns structured result.
     gondolin.ts           VM.create lifecycle + tool overrides for read/write/edit/bash.
+  telemetry/
+    index.ts              createTelemetry(deps) → TelemetryHandle. No-op + no SDK
+                          import when disabled; dynamic-imports sdk.ts when enabled.
+    config.ts             resolveTelemetryConfig() (enablement precedence) + redact().
+    sdk.ts                OTEL SDK construction (providers/exporters/propagator).
+                          Diagnostics routed to onWarn — never the console.
+    mapper.ts             Pi event stream → span tree (session/turn/tool/llm) + metrics.
+    semconv.ts            Centralized gen_ai.* / agentic_pi.* attribute + metric names.
 
 test/fixtures/            Golden JSONL streams from real runs. Treat as contract evidence.
 docker/                   Reserved for future container image work. Currently empty.

@@ -116,6 +116,22 @@ export interface RunOptions {
    */
   fileSearchMode?: "override" | "tools-only" | "tools-and-ui";
 
+  // ── OpenTelemetry ───────────────────────────────────────────────
+  /**
+   * Enable OTEL traces + metrics export. Default: `false` (or env
+   * `AGENTIC_PI_OTEL_ENABLED=1`). `false` here force-disables. Requires an
+   * OTLP endpoint via `OTEL_EXPORTER_OTLP_ENDPOINT` or `otelEndpoint`.
+   * Standard `OTEL_*` env vars are honored by the SDK. Sandbox/env-driven
+   * callers can leave this unset and rely on `AGENTIC_PI_OTEL_ENABLED`.
+   */
+  otel?: boolean;
+  /** Attach bounded raw content to spans. Default: `false` (metadata-only). */
+  otelIncludeContent?: boolean;
+  /** Override OTEL service name (default: "agentic-pi"). */
+  otelServiceName?: string;
+  /** Override the OTLP endpoint base URL (escape hatch; prefer the env var). */
+  otelEndpoint?: string;
+
   // ── Observability hooks ─────────────────────────────────────────
   /**
    * Called for every emitted JSONL record in order. Same shape that the
@@ -199,6 +215,16 @@ export interface RunResult {
     mode?: string;
     toolCount: number;
   };
+  /**
+   * Mirror of the telemetry `extension_status` line. Present only when OTEL
+   * was requested (enabled or explicitly disabled); absent on a default run.
+   */
+  telemetry?: {
+    status: "configured" | "skipped";
+    reason?: string;
+    message?: string;
+    includeContent?: boolean;
+  };
 
   /** Every JSONL record the run emitted, in order. */
   records: EmitterRecord[];
@@ -244,6 +270,10 @@ export async function run(options: RunOptions): Promise<RunResult> {
     webSearchMaxCalls: options.webSearchMaxCalls,
     fileSearch: options.fileSearch ?? true,
     fileSearchMode: options.fileSearchMode,
+    otel: options.otel,
+    otelIncludeContent: options.otelIncludeContent,
+    otelServiceName: options.otelServiceName,
+    otelEndpoint: options.otelEndpoint,
   };
 
   const collector = new CollectorSink(options.onEvent);
@@ -318,6 +348,13 @@ function buildResult(
             message: r.message as string | undefined,
             mode: r.mode as string | undefined,
             toolCount: (r.toolCount as number) ?? 0,
+          };
+        } else if (r.extension === "telemetry") {
+          result.telemetry = {
+            status: r.status as "configured" | "skipped",
+            reason: r.reason as string | undefined,
+            message: r.message as string | undefined,
+            includeContent: r.includeContent as boolean | undefined,
           };
         }
         break;

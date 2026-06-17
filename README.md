@@ -293,6 +293,67 @@ built-in `find`/`grep`.
 When disabled or unavailable, `status: "skipped"` carries a `reason` of
 `disabled-by-flag` or `resolve-failed`.
 
+### 10. Optional OpenTelemetry export via `--otel`
+
+agentic-pi can export **traces and metrics** for its run to any OTLP-compatible
+collector, using the standard OpenTelemetry JS SDK and the standard `OTEL_*`
+environment variables. This is meant for orchestrators (e.g. lastlight) that
+forward `OTEL_*` config into a sandboxed agentic-pi process so Pi's own activity
+shows up in their observability stack.
+
+**Off unless explicitly enabled.** Enablement precedence (highest first):
+
+1. `--no-otel` → force-disabled (wins over everything).
+2. `--otel` → enabled.
+3. env `AGENTIC_PI_OTEL_ENABLED=1` (when neither flag is passed) → enabled.
+4. otherwise → disabled.
+
+A bare `OTEL_EXPORTER_OTLP_ENDPOINT` does **not** enable telemetry on its own —
+enablement is always intentional. Configure the destination with the usual
+`OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` /
+`OTEL_EXPORTER_OTLP_TRACES_ENDPOINT` (etc.) variables, or `--otel-endpoint` as a
+base-URL escape hatch.
+
+**Span tree** (one-shot run → a short-lived root span is correct):
+
+```
+agentic_pi.session                 (root; gen_ai.conversation.id = sessionId)
+└── agentic_pi.turn
+    ├── chat <model>               (per assistant message; tokens, cost, finish reason)
+    └── execute_tool <name>        (per tool call; status, duration)
+```
+
+**Metrics**: `gen_ai.client.token.usage`, `gen_ai.client.operation.duration`,
+`agentic_pi.cost.usd`, `agentic_pi.tool.duration`, `agentic_pi.tool.invocations`,
+`agentic_pi.tool.failures`, `agentic_pi.turns`. Attribute names follow the OTEL
+GenAI semantic conventions where stable, namespaced under `agentic_pi.*` otherwise.
+
+**Metadata-only by default.** Raw prompt/message/tool-result content is **never**
+exported unless you pass `--otel-include-content` (or set
+`AGENTIC_PI_OTEL_INCLUDE_CONTENT=1`), in which case content is bounded and
+truncated. Metric dimensions are always metadata (bounded cardinality).
+
+**Trace correlation.** If a W3C `TRACEPARENT` env var is present, the session
+span is parented to it, so a sandboxed agentic-pi run correlates with the
+caller's trace across the process/container boundary.
+
+**Safe by default.** Telemetry never affects the run's exit code, never writes to
+stdout/stderr (SDK diagnostics route to the warning channel), and degrades to a
+warning if the collector is unreachable. When requested, a final
+`extension_status` event mirrors the others:
+
+```jsonl
+{"type":"extension_status","extension":"telemetry","status":"configured","includeContent":false,"sessionId":"…","timestamp":"…"}
+```
+
+A silent default run (no `--otel`) emits no telemetry event at all.
+
+```bash
+# Export to a local collector (e.g. otel-desktop-viewer, Jaeger, Grafana Alloy)
+echo "summarize the repo" | OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318 \
+  node dist/cli.js run --model openai/gpt-5.4-nano --otel --no-session
+```
+
 ## When to use this
 
 - You have an orchestrator that calls a coding agent once per workflow
@@ -358,6 +419,11 @@ GITHUB_TOKEN=ghp_…
 | `--no-file-search` | Disable the bundled FFF file-search extension; fall back to Pi's built-in `find`/`grep`. |
 | `--file-search-mode <m>` | FFF mode: `override` (default) \| `tools-only` \| `tools-and-ui`. Overridden by the `PI_FFF_MODE` env var. See section 9. |
 | `--web-search-max-calls <n>` | Cap combined `web_search` + `web_fetch` calls per run. Default: 30. |
+| `--otel` | Enable OpenTelemetry traces + metrics export. Off by default. Requires an OTLP endpoint via `OTEL_EXPORTER_OTLP_ENDPOINT` (or `--otel-endpoint`). See section 10. |
+| `--no-otel` | Force-disable OTEL even if `AGENTIC_PI_OTEL_ENABLED=1`. |
+| `--otel-include-content` | Attach prompt/message/tool content to spans (bounded + truncated). Default: metadata-only. |
+| `--otel-service-name <n>` | Override `OTEL_SERVICE_NAME` (default: `agentic-pi`). |
+| `--otel-endpoint <url>` | Override `OTEL_EXPORTER_OTLP_ENDPOINT` base URL. |
 
 Reads the prompt from stdin. Emits JSONL on stdout. Exits 0 on `agent_end`,
 1 on fatal error.

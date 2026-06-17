@@ -88,6 +88,25 @@ export interface RunConfig {
    * the same names). Set via `--file-search-mode <override|tools-only|tools-and-ui>`.
    */
   fileSearchMode?: "override" | "tools-only" | "tools-and-ui";
+  /**
+   * OpenTelemetry traces + metrics export. Tri-state:
+   *   - `true`  (`--otel`)    → enabled.
+   *   - `false` (`--no-otel`) → force-disabled (wins over env).
+   *   - `undefined` (unset)   → enabled iff env AGENTIC_PI_OTEL_ENABLED is truthy.
+   * Off by default. Requires an OTLP endpoint via OTEL_EXPORTER_OTLP_ENDPOINT
+   * (or `--otel-endpoint`). Standard OTEL_* env vars are honored by the SDK.
+   */
+  otel?: boolean;
+  /**
+   * Export raw prompt/message/tool content on spans (bounded + truncated).
+   * Default: false (metadata-only). Set via `--otel-include-content` or env
+   * AGENTIC_PI_OTEL_INCLUDE_CONTENT.
+   */
+  otelIncludeContent?: boolean;
+  /** Override OTEL_SERVICE_NAME (default: "agentic-pi"). */
+  otelServiceName?: string;
+  /** Override OTEL_EXPORTER_OTLP_ENDPOINT (escape hatch; prefer the env var). */
+  otelEndpoint?: string;
 }
 
 export function printHelp(): void {
@@ -133,6 +152,17 @@ Flags:
   --file-search-mode <m>     FFF mode: override | tools-only | tools-and-ui.
                               Default: override (FFF replaces built-in find/grep
                               under the same names). Overridden by PI_FFF_MODE env.
+  --otel                     Enable OpenTelemetry traces + metrics export.
+                              Off by default. Requires an OTLP endpoint via
+                              OTEL_EXPORTER_OTLP_ENDPOINT (or --otel-endpoint).
+                              Honors standard OTEL_* env vars. Can also be
+                              enabled with AGENTIC_PI_OTEL_ENABLED=1.
+  --no-otel                  Force-disable OTEL even if AGENTIC_PI_OTEL_ENABLED
+                              is set (highest precedence).
+  --otel-include-content     Attach prompt/message/tool content to spans
+                              (bounded + truncated). Default: metadata-only.
+  --otel-service-name <n>    Override OTEL_SERVICE_NAME (default: agentic-pi).
+  --otel-endpoint <url>      Override OTEL_EXPORTER_OTLP_ENDPOINT base URL.
   --sandbox-image <name>     Image to boot when --sandbox=gondolin. Values:
                               'default' (recommended) — bundled agentic-pi-dev image
                                 with git/gh/node/python/rust baked in (auto-downloaded).
@@ -277,6 +307,27 @@ export function parseArgs(argv: string[]): RunConfig {
           );
         }
         config.fileSearchMode = v;
+        break;
+      }
+      case "--otel":
+        config.otel = true;
+        break;
+      case "--no-otel":
+        config.otel = false;
+        break;
+      case "--otel-include-content":
+        config.otelIncludeContent = true;
+        break;
+      case "--otel-service-name": {
+        const v = next().trim();
+        if (!v) throw new Error("--otel-service-name requires a value");
+        config.otelServiceName = v;
+        break;
+      }
+      case "--otel-endpoint": {
+        const v = next().trim();
+        if (!v) throw new Error("--otel-endpoint requires a value");
+        config.otelEndpoint = v;
         break;
       }
       case "-h":

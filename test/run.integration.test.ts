@@ -114,5 +114,46 @@ await run({
         `library wrote to stderr: ${JSON.stringify(child.stderr.slice(0, 500))}`,
       );
     });
+
+    test("with OTEL enabled + an unreachable collector, still writes nothing to stdout/stderr", () => {
+      // The full runner path with telemetry on, pointed at a dead endpoint.
+      // Every export fails; the contract still holds (diagnostics route to
+      // onWarn, never the console). Proves the unit-level guard end-to-end.
+      const inline = `
+import { run } from ${JSON.stringify(CLI_DIST)};
+const r = await run({
+  model: "openai/gpt-5.4-nano",
+  prompt: "say 'hi' and nothing else",
+  thinking: "off",
+  noSession: true,
+  otel: true,
+  otelEndpoint: "http://127.0.0.1:1",
+});
+if (r.telemetry?.status !== "configured") {
+  throw new Error("expected telemetry configured, got: " + JSON.stringify(r.telemetry));
+}
+`;
+      const child = spawnSync(process.execPath, ["--input-type=module", "-e", inline], {
+        encoding: "utf8",
+        env: { ...process.env, OTEL_EXPORTER_OTLP_TIMEOUT: "300", OTEL_BSP_SCHEDULE_DELAY: "50" },
+        timeout: 60_000,
+      });
+
+      assert.equal(
+        child.status,
+        0,
+        `child exited non-zero (${child.status}). stderr: ${child.stderr}`,
+      );
+      assert.equal(
+        child.stdout,
+        "",
+        `library wrote to stdout: ${JSON.stringify(child.stdout.slice(0, 500))}`,
+      );
+      assert.equal(
+        child.stderr,
+        "",
+        `library wrote to stderr: ${JSON.stringify(child.stderr.slice(0, 500))}`,
+      );
+    });
   },
 );

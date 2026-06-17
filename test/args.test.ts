@@ -186,6 +186,39 @@ describe("parseArgs", () => {
     );
   });
 
+  test("otel is off (undefined) by default — env decides", () => {
+    const cfg = parseArgs(["--model", "openai/gpt-4"]);
+    assert.equal(cfg.otel, undefined);
+    assert.equal(cfg.otelIncludeContent, undefined);
+  });
+
+  test("--otel and --no-otel set the tri-state flag", () => {
+    assert.equal(parseArgs(["--model", "openai/gpt-4", "--otel"]).otel, true);
+    assert.equal(parseArgs(["--model", "openai/gpt-4", "--no-otel"]).otel, false);
+  });
+
+  test("--otel-include-content is boolean", () => {
+    const cfg = parseArgs(["--model", "openai/gpt-4", "--otel-include-content"]);
+    assert.equal(cfg.otelIncludeContent, true);
+  });
+
+  test("--otel-service-name and --otel-endpoint capture values", () => {
+    const cfg = parseArgs([
+      "--model", "openai/gpt-4",
+      "--otel-service-name", "my-svc",
+      "--otel-endpoint", "http://collector:4318",
+    ]);
+    assert.equal(cfg.otelServiceName, "my-svc");
+    assert.equal(cfg.otelEndpoint, "http://collector:4318");
+  });
+
+  test("--otel-service-name rejects empty value", () => {
+    assert.throws(
+      () => parseArgs(["--model", "openai/gpt-4", "--otel-service-name", "  "]),
+      /requires a value/,
+    );
+  });
+
   test("unknown flag throws", () => {
     assert.throws(
       () => parseArgs(["--model", "openai/gpt-4", "--bogus"]),
