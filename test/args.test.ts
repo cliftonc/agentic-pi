@@ -213,6 +213,27 @@ describe("parseArgs", () => {
     assert.equal(cfg.noSkills, true);
   });
 
+  test("retry flags are unset by default", () => {
+    const cfg = parseArgs(["--model", "openai/gpt-4"]);
+    assert.equal(cfg.maxRetries, undefined);
+    assert.equal(cfg.retryBaseDelayMs, undefined);
+  });
+
+  test("--max-retries accepts 0 and positive integers", () => {
+    assert.equal(parseArgs(["--model", "openai/gpt-4", "--max-retries", "0"]).maxRetries, 0);
+    assert.equal(parseArgs(["--model", "openai/gpt-4", "--max-retries", "8"]).maxRetries, 8);
+  });
+
+  test("--max-retries rejects negatives and non-integers", () => {
+    assert.throws(() => parseArgs(["--model", "openai/gpt-4", "--max-retries", "-1"]), /non-negative integer/);
+    assert.throws(() => parseArgs(["--model", "openai/gpt-4", "--max-retries", "2.5"]), /non-negative integer/);
+  });
+
+  test("--retry-base-delay-ms accepts positive integers, rejects <1", () => {
+    assert.equal(parseArgs(["--model", "openai/gpt-4", "--retry-base-delay-ms", "5000"]).retryBaseDelayMs, 5000);
+    assert.throws(() => parseArgs(["--model", "openai/gpt-4", "--retry-base-delay-ms", "0"]), /positive integer/);
+  });
+
   test("otel is off (undefined) by default — env decides", () => {
     const cfg = parseArgs(["--model", "openai/gpt-4"]);
     assert.equal(cfg.otel, undefined);

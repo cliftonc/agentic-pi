@@ -16,10 +16,11 @@ import {
   DefaultResourceLoader,
   ModelRegistry,
   SessionManager,
+  SettingsManager,
   createAgentSession,
   getAgentDir,
 } from "@earendil-works/pi-coding-agent";
-import type { AgentSessionEvent } from "@earendil-works/pi-coding-agent";
+import type { AgentSessionEvent, RetrySettings } from "@earendil-works/pi-coding-agent";
 
 import type { RunConfig } from "./args.js";
 import { Emitter, type EmitterRecord, type EmitterSink } from "./emitter.js";
@@ -34,6 +35,7 @@ import {
 } from "./extensions/file-search/index.js";
 import { loadSkillsExtension, buildSkillsStatusEvent } from "./extensions/skills/index.js";
 import { resolveModel } from "./models.js";
+import { resolveRetrySettings } from "./retry.js";
 import { buildSandbox, type ImageDescriptor, type SandboxResult } from "./sandbox/index.js";
 import { ensureImage, ImageLoaderError } from "./sandbox/images/loader.js";
 import { createTelemetry, resolveTelemetryConfig } from "./telemetry/index.js";
@@ -213,6 +215,26 @@ export async function runOnce(
   // default discovery (~/.pi/agent + project .pi). Mirrors the loader
   // createAgentSession would build by default (same cwd + agentDir).
   const agentDir = getAgentDir();
+
+  // Build the settings manager ourselves (same cwd + agentDir createAgentSession
+  // would use) so we can raise Pi's transient-error retry budget. Pi's defaults
+  // (3 retries ≈ 14s) are too short for per-minute rate-limit windows like
+  // Fireworks' TPM limits, where a window can take ~60s to clear. We layer the
+  // resolved retry block on top of the operator's settings.json via
+  // applyOverrides — flags win, then their file config, then our defaults — so
+  // we never clobber an explicit `retry` (or its `provider` sub-settings).
+  const settingsManager = SettingsManager.create(config.cwd, agentDir);
+  const fileRetry: RetrySettings = {
+    ...settingsManager.getGlobalSettings().retry,
+    ...settingsManager.getProjectSettings().retry,
+  };
+  settingsManager.applyOverrides({
+    retry: resolveRetrySettings(
+      { maxRetries: config.maxRetries, baseDelayMs: config.retryBaseDelayMs },
+      fileRetry,
+    ),
+  });
+
   const resourceLoader = new DefaultResourceLoader({
     cwd: config.cwd,
     agentDir,
@@ -246,6 +268,7 @@ export async function runOnce(
     model,
     thinkingLevel: config.thinking,
     sessionManager,
+    settingsManager,
     authStorage,
     modelRegistry,
     resourceLoader,

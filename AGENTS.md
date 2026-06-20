@@ -52,6 +52,11 @@ src/
   emitter.ts              Sink abstraction (Stdout/Collector/Tee) + Emitter.
                           The runner emits through this; CLI and run() wire different sinks.
   models.ts               "provider/id" → getModel(provider, id) from pi-ai.
+  retry.ts                resolveRetrySettings() — flag > settings.json > our
+                          bumped defaults (5 retries / 4s base) for transient-
+                          error backoff. runner builds a SettingsManager and
+                          applyOverrides({retry}) so Pi rides out per-minute
+                          rate-limit windows (e.g. Fireworks TPM). Pure/testable.
   runner.ts               Drives Pi: createAgentSession → subscribe → prompt → agent_end.
                           Sink-agnostic — takes an EmitterSink + onWarn callback as deps.
   extensions/github/
