@@ -42,6 +42,7 @@ The flow is **sink-agnostic**: `runner.ts` drives Pi and emits events through an
 - `cli.ts` / `run.ts` — the two entry points that wire different sinks into the runner.
 - `args.ts` — flag parser; **source of truth for the CLI surface**.
 - `models.ts` — `"provider/id"` string → `getModel(provider, id)` from pi-ai.
+- `retry.ts` — `resolveRetrySettings()` (flag > settings.json > bumped defaults). The runner builds a `SettingsManager` and `applyOverrides({retry})` so Pi's auto-retry rides out per-minute rate-limit windows (e.g. Fireworks TPM); tunable via `--max-retries` / `--retry-base-delay-ms`.
 
 Extensions live in `src/extensions/`, each "safe by default" (skip with an enumerated reason rather than aborting the run):
 - `github/` — ~31 native Pi tools (`github_` prefix, registered via `defineTool()`), gated by **profile** (`read` | `issues-write` | `review-write` | `repo-write`). Profile filtering happens at registration time — the LLM never sees disallowed tools. Auth mints a short-lived installation token from a GitHub App JWT.

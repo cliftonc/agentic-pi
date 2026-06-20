@@ -129,6 +129,28 @@ the current list):
 > Pi's `docs/models.md`. agentic-pi resolves custom models from there
 > automatically via Pi's `ModelRegistry`.
 
+**Rate limits & retries.** Pi auto-retries transient model errors — HTTP `429`
+(rate limit), `503` (overloaded), other 5xx, and network/timeout — with
+exponential backoff (`delay = base · 2^(attempt-1)`), and correctly does *not*
+retry terminal quota/billing errors. This is on by default and surfaces as
+`auto_retry_start` / `auto_retry_end` events in the JSONL stream.
+
+Pi's stock schedule (3 retries ≈ 14s) is too short for providers that limit on
+a **per-minute window** — notably Fireworks, whose TPM limits can take ~60s to
+clear, so a burst fails before the window resets. agentic-pi therefore raises
+the default to **5 retries at a 4s base → 4s, 8s, 16s, 32s, 64s** (the final
+wait alone outlasts a 60s window). Tune per run:
+
+```bash
+--max-retries <n>           # attempts (0 disables). e.g. 6
+--retry-base-delay-ms <ms>  # backoff base. e.g. 5000 → 5,10,20,40,80s
+```
+
+Precedence is **flag → your `retry` block in `~/.pi/agent/settings.json` →
+agentic-pi's default**, so an explicit settings.json `retry` (including
+`retry.provider.*`) is preserved. Programmatic callers pass `maxRetries` /
+`retryBaseDelayMs` to `run()`.
+
 ### 6. Defaults that match a containerized sandbox
 
 - **`--no-session`** is intended to be the default in sandboxed runs (state
@@ -548,6 +570,8 @@ GITHUB_TOKEN=ghp_…
 | `--file-search-mode <m>` | FFF mode: `override` (default) \| `tools-only` \| `tools-and-ui`. Overridden by the `PI_FFF_MODE` env var. See section 9. |
 | `--skill <path>` | Load Agent Skills from `<path>` (a skills dir or a single skill). Repeatable; additive even with `--no-skills`. Maps e.g. `~/.claude/skills` into the agent. Default-location skills load without this. See section 11. |
 | `--no-skills` | Disable Pi's default skill discovery. Explicit `--skill` paths still load. |
+| `--max-retries <n>` | Max auto-retry attempts for transient model errors (429/503/5xx/network). Exponential backoff; `0` disables. Default tuned for per-minute rate-limit windows (e.g. Fireworks TPM). Overrides `retry.maxRetries` in settings.json. See section 5. |
+| `--retry-base-delay-ms <n>` | Backoff base in ms: `delay = base·2^(attempt-1)`. Overrides `retry.baseDelayMs` in settings.json. |
 | `--web-search-max-calls <n>` | Cap combined `web_search` + `web_fetch` calls per run. Default: 30. |
 | `--otel` | Enable OpenTelemetry traces + metrics export. Off by default. Requires an OTLP endpoint via `OTEL_EXPORTER_OTLP_ENDPOINT` (or `--otel-endpoint`). See section 10. |
 | `--no-otel` | Force-disable OTEL even if `AGENTIC_PI_OTEL_ENABLED=1`. |

@@ -102,6 +102,19 @@ export interface RunConfig {
    */
   noSkills?: boolean;
   /**
+   * Max auto-retry attempts for transient model errors (429 rate limit, 503
+   * overloaded, 5xx, network/timeout). Set via `--max-retries`. Default:
+   * agentic-pi's bumped default (see retry.ts), unless the operator set
+   * `retry.maxRetries` in Pi settings.json. 0 disables retries.
+   */
+  maxRetries?: number;
+  /**
+   * Base delay (ms) for exponential backoff: delay = base * 2^(attempt-1).
+   * Set via `--retry-base-delay-ms`. Default: agentic-pi's bumped default,
+   * unless the operator set `retry.baseDelayMs` in Pi settings.json.
+   */
+  retryBaseDelayMs?: number;
+  /**
    * OpenTelemetry traces + metrics export. Tri-state:
    *   - `true`  (`--otel`)    → enabled.
    *   - `false` (`--no-otel`) → force-disabled (wins over env).
@@ -173,6 +186,13 @@ Flags:
                               are discovered automatically without this flag.
   --no-skills                Disable Pi's default skill discovery. Explicit
                               --skill paths still load.
+  --max-retries <n>          Max auto-retry attempts for transient model errors
+                              (429 rate limit, 503 overloaded, 5xx, network).
+                              Exponential backoff. 0 disables. Default tuned for
+                              per-minute rate-limit windows (e.g. Fireworks TPM).
+                              Overrides retry.maxRetries from Pi settings.json.
+  --retry-base-delay-ms <n>  Base backoff delay in ms: delay = base*2^(attempt-1).
+                              Overrides retry.baseDelayMs from Pi settings.json.
   --otel                     Enable OpenTelemetry traces + metrics export.
                               Off by default. Requires an OTLP endpoint via
                               OTEL_EXPORTER_OTLP_ENDPOINT (or --otel-endpoint).
@@ -329,6 +349,24 @@ export function parseArgs(argv: string[]): RunConfig {
       case "--no-skills":
         config.noSkills = true;
         break;
+      case "--max-retries": {
+        const v = next();
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 0) {
+          throw new Error(`--max-retries must be a non-negative integer (got '${v}')`);
+        }
+        config.maxRetries = n;
+        break;
+      }
+      case "--retry-base-delay-ms": {
+        const v = next();
+        const n = Number(v);
+        if (!Number.isInteger(n) || n < 1) {
+          throw new Error(`--retry-base-delay-ms must be a positive integer (got '${v}')`);
+        }
+        config.retryBaseDelayMs = n;
+        break;
+      }
       case "--file-search-mode": {
         const v = next();
         if (v !== "override" && v !== "tools-only" && v !== "tools-and-ui") {

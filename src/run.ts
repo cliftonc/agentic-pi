@@ -130,6 +130,20 @@ export interface RunOptions {
    */
   noSkills?: boolean;
 
+  /**
+   * Max auto-retry attempts for transient model errors (429 rate limit, 503
+   * overloaded, 5xx, network/timeout). Exponential backoff. `0` disables.
+   * Overrides `retry.maxRetries` from Pi settings.json; defaults to
+   * agentic-pi's per-minute-window default when unset.
+   */
+  maxRetries?: number;
+  /**
+   * Base backoff delay in ms: `delay = base * 2^(attempt-1)`. Overrides
+   * `retry.baseDelayMs` from Pi settings.json; defaults to agentic-pi's when
+   * unset.
+   */
+  retryBaseDelayMs?: number;
+
   // ── OpenTelemetry ───────────────────────────────────────────────
   /**
    * Enable OTEL traces + metrics export. Default: `false` (or env
@@ -298,6 +312,8 @@ export async function run(options: RunOptions): Promise<RunResult> {
     fileSearchMode: options.fileSearchMode,
     skillPaths: options.skillPaths,
     noSkills: options.noSkills,
+    maxRetries: options.maxRetries,
+    retryBaseDelayMs: options.retryBaseDelayMs,
     otel: options.otel,
     otelIncludeContent: options.otelIncludeContent,
     otelServiceName: options.otelServiceName,
