@@ -221,13 +221,18 @@ Two GitHub Actions workflows ship with the repo:
 - `.github/workflows/ci.yml` runs on every push to `main` and every PR:
   type-check, build, unit tests, integration tests (gated on the
   `OPENAI_API_KEY` secret — auto-skipped if absent).
-- `.github/workflows/publish.yml` runs on `v*.*.*` tag pushes. It
-  verifies the tag matches `package.json`, then runs `npm publish
-  --provenance --access public` via npm's OIDC trusted-publisher flow
-  (no `NPM_TOKEN` needed in the repo).
+- `.github/workflows/publish.yml` runs when a **GitHub Release is
+  published** (`release: published`) — pushing a tag alone does NOT
+  publish. It verifies the tag matches `package.json`, then runs `npm
+  publish --provenance --access public` via npm's OIDC trusted-publisher
+  flow (no `NPM_TOKEN` needed in the repo). There's also a
+  `workflow_dispatch` escape hatch to retry a failed publish from the
+  Actions tab.
 
 To release: bump `package.json`, commit, `git tag vX.Y.Z && git push
---tags`. Workflow does the rest.
+origin main vX.Y.Z`, then create the GitHub Release for that tag (e.g.
+`gh release create vX.Y.Z --title vX.Y.Z --notes …`) — publishing the
+release is the "ship it" signal that triggers the workflow.
 
 Env vars typically needed (mirror lastlight's `.env` when developing):
 

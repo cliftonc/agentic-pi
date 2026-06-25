@@ -70,4 +70,4 @@ Extensions live in `src/extensions/`, each "safe by default" (skip with an enume
 
 ## Releasing
 
-Bump `package.json`, commit, `git tag vX.Y.Z && git push --tags`. `.github/workflows/publish.yml` verifies the tag matches `package.json` and publishes via npm OIDC trusted-publisher (no `NPM_TOKEN`). `ci.yml` runs type-check/build/tests on push + PR (integration gated on the `OPENAI_API_KEY` secret).
+Bump `package.json`, commit, `git tag vX.Y.Z && git push origin main vX.Y.Z`, then **create a GitHub Release** for the tag (`gh release create vX.Y.Z --title vX.Y.Z --notes …`). `.github/workflows/publish.yml` triggers on the *published release* — not the tag push — verifies the tag matches `package.json`, and publishes via npm OIDC trusted-publisher (no `NPM_TOKEN`). `ci.yml` runs type-check/build/tests on push + PR (integration gated on the `OPENAI_API_KEY` secret).
